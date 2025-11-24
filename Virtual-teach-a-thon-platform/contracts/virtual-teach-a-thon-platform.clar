@@ -350,3 +350,92 @@
         (ok true)
     )
 )
+
+;; Read-only functions
+(define-read-only (get-session (session-id uint))
+    (map-get? sessions { session-id: session-id })
+)
+
+(define-read-only (get-enrollment (student principal) (session-id uint))
+    (map-get? student-enrollments { student: student, session-id: session-id })
+)
+
+(define-read-only (get-session-count)
+    (ok (var-get session-counter))
+)
+
+(define-read-only (get-educator-stats (educator principal))
+    (map-get? educator-stats { educator: educator })
+)
+
+(define-read-only (get-student-stats (student principal))
+    (map-get? student-stats { student: student })
+)
+
+(define-read-only (get-session-rating (student principal) (session-id uint))
+    (map-get? session-ratings { student: student, session-id: session-id })
+)
+
+(define-read-only (get-average-session-rating (session-id uint))
+    (let
+        (
+            (session (map-get? sessions { session-id: session-id }))
+        )
+        (match session
+            session-data
+                (if (> (get rating-count session-data) u0)
+                    (ok (/ (get total-rating session-data) (get rating-count session-data)))
+                    (ok u0))
+            (err err-not-found)
+        )
+    )
+)
+
+(define-read-only (get-certification (educator principal) (certification-id uint))
+    (map-get? educator-certifications { educator: educator, certification-id: certification-id })
+)
+
+(define-read-only (get-session-material (session-id uint) (material-id uint))
+    (map-get? session-materials { session-id: session-id, material-id: material-id })
+)
+
+(define-read-only (get-total-reward-pool)
+    (ok (var-get total-reward-pool))
+)
+
+(define-read-only (get-platform-fee-percentage)
+    (ok (var-get platform-fee-percentage))
+)
+
+(define-read-only (is-session-active (session-id uint))
+    (match (map-get? sessions { session-id: session-id })
+        session-data (ok (get active session-data))
+        (err err-not-found)
+    )
+)
+
+(define-read-only (is-student-enrolled (student principal) (session-id uint))
+    (match (map-get? student-enrollments { student: student, session-id: session-id })
+        enrollment-data (ok (get enrolled enrollment-data))
+        (ok false)
+    )
+)
+
+(define-read-only (has-student-completed (student principal) (session-id uint))
+    (match (map-get? student-enrollments { student: student, session-id: session-id })
+        enrollment-data (ok (get completed enrollment-data))
+        (ok false)
+    )
+)
+
+(define-read-only (get-session-capacity (session-id uint))
+    (match (map-get? sessions { session-id: session-id })
+        session-data 
+            (ok {
+                current: (get current-students session-data),
+                max: (get max-students session-data),
+                available: (- (get max-students session-data) (get current-students session-data))
+            })
+        (err err-not-found)
+    )
+)
