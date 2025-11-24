@@ -240,3 +240,39 @@
         (ok true)
     )
 )
+
+;; Rate a session (1-5 stars)
+;; #[allow(unchecked_data)]
+(define-public (rate-session (session-id uint) (rating uint) (feedback (string-ascii 200)))
+    (let
+        (
+            (session (unwrap! (map-get? sessions { session-id: session-id }) err-not-found))
+            (enrollment (unwrap! (map-get? student-enrollments { student: tx-sender, session-id: session-id }) err-not-found))
+            (existing-rating (map-get? session-ratings { student: tx-sender, session-id: session-id }))
+            (educator-data (unwrap! (map-get? educator-stats { educator: (get educator session) }) err-not-found))
+        )
+        (asserts! (get completed enrollment) err-session-not-complete)
+        (asserts! (and (>= rating u1) (<= rating u5)) err-invalid-rating)
+        (asserts! (is-none existing-rating) err-already-rated)
+        (map-set session-ratings
+            { student: tx-sender, session-id: session-id }
+            { rating: rating, feedback: feedback, rated: true, timestamp: stacks-block-height }
+        )
+        (map-set sessions
+            { session-id: session-id }
+            (merge session { 
+                total-rating: (+ (get total-rating session) rating),
+                rating-count: (+ (get rating-count session) u1)
+            })
+        )
+        (map-set educator-stats
+            { educator: (get educator session) }
+            (merge educator-data { 
+                total-ratings: (+ (get total-ratings educator-data) u1),
+                average-rating: (/ (+ (* (get average-rating educator-data) (get total-ratings educator-data)) rating) 
+                                   (+ (get total-ratings educator-data) u1))
+            })
+        )
+        (ok true)
+    )
+)
