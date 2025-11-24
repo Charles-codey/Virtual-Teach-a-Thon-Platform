@@ -276,3 +276,77 @@
         (ok true)
     )
 )
+
+;; Upload session materials
+;; #[allow(unchecked_data)]
+(define-public (upload-material (session-id uint) (title (string-ascii 100)) (content-hash (string-ascii 64)))
+    (let
+        (
+            (session (unwrap! (map-get? sessions { session-id: session-id }) err-not-found))
+            (new-material-id (+ (var-get material-counter) u1))
+        )
+        (asserts! (is-eq (get educator session) tx-sender) err-unauthorized)
+        (map-set session-materials
+            { session-id: session-id, material-id: new-material-id }
+            {
+                title: title,
+                content-hash: content-hash,
+                uploaded-at: stacks-block-height
+            }
+        )
+        (var-set material-counter new-material-id)
+        (ok new-material-id)
+    )
+)
+
+;; Add certification for educator
+;; #[allow(unchecked_data)]
+(define-public (add-certification (certification-name (string-ascii 100)))
+    (let
+        (
+            (new-cert-id (+ (var-get certification-counter) u1))
+        )
+        (map-set educator-certifications
+            { educator: tx-sender, certification-id: new-cert-id }
+            {
+                certification-name: certification-name,
+                issued-at: stacks-block-height,
+                verified: false
+            }
+        )
+        (var-set certification-counter new-cert-id)
+        (ok new-cert-id)
+    )
+)
+
+;; Verify certification (contract owner only)
+;; #[allow(unchecked_data)]
+(define-public (verify-certification (educator principal) (certification-id uint))
+    (let
+        (
+            (cert (unwrap! (map-get? educator-certifications { educator: educator, certification-id: certification-id }) err-not-found))
+        )
+        (asserts! (is-eq tx-sender contract-owner) err-owner-only)
+        (map-set educator-certifications
+            { educator: educator, certification-id: certification-id }
+            (merge cert { verified: true })
+        )
+        (ok true)
+    )
+)
+
+;; Update educator earnings
+(define-public (update-earnings (session-id uint) (amount uint))
+    (let
+        (
+            (session (unwrap! (map-get? sessions { session-id: session-id }) err-not-found))
+            (educator-data (unwrap! (map-get? educator-stats { educator: (get educator session) }) err-not-found))
+        )
+        (asserts! (is-eq tx-sender contract-owner) err-owner-only)
+        (map-set educator-stats
+            { educator: (get educator session) }
+            (merge educator-data { total-earnings: (+ (get total-earnings educator-data) amount) })
+        )
+        (ok true)
+    )
+)
