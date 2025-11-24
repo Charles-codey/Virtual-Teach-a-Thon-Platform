@@ -108,3 +108,135 @@
         active: bool
     }
 )
+
+;; Create new teaching session with enhanced details
+;; #[allow(unchecked_data)]
+(define-public (create-session (subject (string-ascii 50)) (max-students uint) (duration-blocks uint) (reward-amount uint))
+    (let
+        (
+            (new-session-id (+ (var-get session-counter) u1))
+            (educator-data (default-to 
+                { total-sessions: u0, total-students-taught: u0, total-earnings: u0, average-rating: u0, total-ratings: u0, active-sessions: u0 }
+                (map-get? educator-stats { educator: tx-sender })))
+        )
+        (asserts! (> duration-blocks u0) err-invalid-duration)
+        (asserts! (> max-students u0) err-invalid-amount)
+        (map-set sessions
+            { session-id: new-session-id }
+            {
+                educator: tx-sender,
+                subject: subject,
+                max-students: max-students,
+                current-students: u0,
+                timestamp: stacks-block-height,
+                active: true,
+                duration-blocks: duration-blocks,
+                reward-amount: reward-amount,
+                total-rating: u0,
+                rating-count: u0
+            }
+        )
+        (map-set educator-stats
+            { educator: tx-sender }
+            (merge educator-data { 
+                total-sessions: (+ (get total-sessions educator-data) u1),
+                active-sessions: (+ (get active-sessions educator-data) u1)
+            })
+        )
+        (var-set session-counter new-session-id)
+        (ok new-session-id)
+    )
+)
+
+;; Student enrollment with timestamp tracking
+;; #[allow(unchecked_data)]
+(define-public (enroll-in-session (session-id uint))
+    (let
+        (
+            (session (unwrap! (map-get? sessions { session-id: session-id }) err-not-found))
+            (student-data (default-to 
+                { total-sessions-attended: u0, total-sessions-completed: u0, total-hours-learned: u0, certificates-earned: u0 }
+                (map-get? student-stats { student: tx-sender })))
+        )
+        (asserts! (get active session) err-session-inactive)
+        (asserts! (< (get current-students session) (get max-students session)) err-session-full)
+        (asserts! (is-none (map-get? student-enrollments { student: tx-sender, session-id: session-id })) err-already-registered)
+        (map-set student-enrollments
+            { student: tx-sender, session-id: session-id }
+            { enrolled: true, completed: false, attendance-time: stacks-block-height, completion-time: u0 }
+        )
+        (map-set sessions
+            { session-id: session-id }
+            (merge session { current-students: (+ (get current-students session) u1) })
+        )
+        (map-set student-stats
+            { student: tx-sender }
+            (merge student-data { total-sessions-attended: (+ (get total-sessions-attended student-data) u1) })
+        )
+        (ok true)
+    )
+)
+
+;; Mark session as completed by student
+;; #[allow(unchecked_data)]
+(define-public (complete-session (session-id uint))
+    (let
+        (
+            (session (unwrap! (map-get? sessions { session-id: session-id }) err-not-found))
+            (enrollment (unwrap! (map-get? student-enrollments { student: tx-sender, session-id: session-id }) err-not-found))
+            (student-data (unwrap! (map-get? student-stats { student: tx-sender }) err-not-found))
+        )
+        (asserts! (get enrolled enrollment) err-not-enrolled)
+        (asserts! (not (get completed enrollment)) err-already-completed)
+        (map-set student-enrollments
+            { student: tx-sender, session-id: session-id }
+            (merge enrollment { completed: true, completion-time: stacks-block-height })
+        )
+        (map-set student-stats
+            { student: tx-sender }
+            (merge student-data { total-sessions-completed: (+ (get total-sessions-completed student-data) u1) })
+        )
+        (ok true)
+    )
+)
+
+;; Close session (educator only)
+;; #[allow(unchecked_data)]
+(define-public (close-session (session-id uint))
+    (let
+        (
+            (session (unwrap! (map-get? sessions { session-id: session-id }) err-not-found))
+            (educator-data (unwrap! (map-get? educator-stats { educator: tx-sender }) err-not-found))
+        )
+        (asserts! (is-eq (get educator session) tx-sender) err-unauthorized)
+        (asserts! (get active session) err-session-inactive)
+        (map-set sessions
+            { session-id: session-id }
+            (merge session { active: false })
+        )
+        (map-set educator-stats
+            { educator: tx-sender }
+            (merge educator-data { active-sessions: (- (get active-sessions educator-data) u1) })
+        )
+        (ok true)
+    )
+)
+
+;; Withdraw from session (before completion)
+;; #[allow(unchecked_data)]
+(define-public (withdraw-from-session (session-id uint))
+    (let
+        (
+            (session (unwrap! (map-get? sessions { session-id: session-id }) err-not-found))
+            (enrollment (unwrap! (map-get? student-enrollments { student: tx-sender, session-id: session-id }) err-not-found))
+        )
+        (asserts! (not (get completed enrollment)) err-already-completed)
+        (asserts! (get active session) err-session-inactive)
+        (map-delete student-enrollments { student: tx-sender, session-id: session-id })
+        (map-set sessions
+            { session-id: session-id }
+            (merge session { current-students: (- (get current-students session) u1) })
+        )
+        (ok true)
+    )
+)
